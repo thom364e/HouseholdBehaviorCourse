@@ -86,6 +86,7 @@ class DynLaborFertModelClass(EconModelClass):
 
         # d. solution arrays
         shape = (par.T,2,par.Nn,par.Na,par.Nk)
+        par.shape = shape
         sol.c = np.nan + np.zeros(shape)
         sol.h = np.nan + np.zeros(shape)
         sol.V = np.nan + np.zeros(shape)
@@ -212,48 +213,109 @@ class DynLaborFertModelClass(EconModelClass):
         a_next = (1.0+par.r)*(assets + income - child_cost - cons)
         k_next = capital + hours
 
-        # no birth, spouse or not
-        kids_next = kids
-        # V_next = sol.V[t+1,spouse,kids_next]
-        # V_next_no_birth = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        # condtional probability of birth given today's state (kids,spouse)
+        p_birth_cond = self.p_birth_func(kids,spouse)
 
         # value function for no birth and no spouse
-        V_next = sol.V[t+1,0,kids_next]
-        V_next_ns_nb = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        # V_next_array = np.nan + np.zeros((2*2, *par.shape))
+        V_next_array = np.nan + np.zeros((2*2))
+        counter = 0
 
-        # value function for no birth and spouse
-        V_next = sol.V[t+1,1,kids_next]
-        V_next_s_nb = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        # looping over all the possible combinations of kids and spouse next period
+        for i_s, spouse_next in enumerate(par.spouse_grid):
+            for i_n, kids_next in enumerate(par.n_grid):
+                V_next = sol.V[t+1,spouse_next,kids_next]
+                V_next_array[counter] = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+                counter += 1
 
-        # birth
-        if (kids>=(par.Nn-1)):
-            # cannot have more children
-            V_next_ns_b = V_next_ns_nb
-            V_next_s_b = V_next_s_nb
+        EV_next = (1 - par.p_spouse)*(1-p_birth_cond) * V_next_array[0] + (1 - par.p_spouse)*p_birth_cond*V_next_array[1] \
+                + par.p_spouse*(1-p_birth_cond)*V_next_array[2] + par.p_spouse*p_birth_cond*V_next_array[3]
 
-        else:
-            kids_next = kids + 1
-            # value function for birth and no spouse
-            V_next = sol.V[t+1,0,kids_next]
-            V_next_ns_b = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        # V_next = sol.V[t+1,0,0]
+        # V_next_ns_nb = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
 
-            # value function for birth and spouse
-            V_next = sol.V[t+1,1,kids_next]
-            V_next_s_b = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        # V_next = sol.V[t+1,0,1]
+        # V_next_ns_b = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
 
-        # EV_next = par.p_birth * V_next_birth + (1-par.p_birth)*V_next_no_birth
+        # V_next = sol.V[t+1,1,0]
+        # V_next_s_nb = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
 
-        # expected value function if you have no spouse *today*
-        EV_next_ns = par.p_spouse * V_next_s_nb + (1-par.p_spouse) * V_next_ns_nb
-        
-        # expected value function if you have a spouse *today*
-        EV_next_s = par.p_spouse * par.p_birth * V_next_s_b + par.p_spouse * (1-par.p_birth) * V_next_s_nb \
-            + (1-par.p_spouse) * par.p_birth * V_next_ns_b + (1-par.p_spouse) * (1-par.p_birth) * V_next_ns_nb
+        # V_next = sol.V[t+1,1,1]
+        # V_next_s_b = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
 
-        EV_next = (1 - spouse) * EV_next_ns + spouse * EV_next_s
+        # EV_next = (1 - par.spouse)*(1-p_birth_cond) * V_next_ns_nb + (1 - par.spouse)*p_birth_cond*V_next_ns_b \
+        #         + par.spouse*(1-p_birth_cond)*V_next_s_nb + par.spouse*p_birth_cond*V_next_s_b
 
         # e. return value of choice (including penalty)
         return util + par.rho*EV_next + penalty
+    
+    # # earlier periods
+    # def value_of_choice(self,cons,hours,assets,capital,kids,spouse,t):
+
+    #     # a. unpack
+    #     par = self.par
+    #     sol = self.sol
+
+    #     # b. penalty for violating bounds. 
+    #     penalty = 0.0
+    #     if cons < 0.0:
+    #         penalty += cons*1_000.0
+    #         cons = 1.0e-5
+    #     if hours < 0.0:
+    #         penalty += hours*1_000.0
+    #         hours = 0.0
+
+    #     # c. utility from consumption
+    #     util = self.util(cons,hours,kids)
+        
+    #     # d. *expected* continuation value from savings
+    #     income = self.wage_func(capital,t) * hours + self.exo_income(t)*spouse
+    #     child_cost = self.childcare_cost(kids)
+    #     a_next = (1.0+par.r)*(assets + income - child_cost - cons)
+    #     k_next = capital + hours
+
+    #     # no birth, spouse or not
+    #     kids_next = kids
+    #     # V_next = sol.V[t+1,spouse,kids_next]
+    #     # V_next_no_birth = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+
+    #     # value function for no birth and no spouse
+    #     V_next = sol.V[t+1,0,kids_next]
+    #     V_next_ns_nb = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+
+    #     # value function for no birth and spouse
+    #     V_next = sol.V[t+1,1,kids_next]
+    #     V_next_s_nb = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+
+    #     # birth
+    #     if (kids>=(par.Nn-1)):
+    #         # cannot have more children
+    #         V_next_ns_b = V_next_ns_nb
+    #         V_next_s_b = V_next_s_nb
+
+    #     else:
+    #         kids_next = kids + 1
+    #         # value function for birth and no spouse
+    #         V_next = sol.V[t+1,0,kids_next]
+    #         V_next_ns_b = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+
+    #         # value function for birth and spouse
+    #         V_next = sol.V[t+1,1,kids_next]
+    #         V_next_s_b = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+
+    #     # EV_next = par.p_birth * V_next_birth + (1-par.p_birth)*V_next_no_birth
+
+    #     # expected value function if you have no spouse *today*
+    #     EV_next_ns = par.p_spouse * V_next_s_nb + (1-par.p_spouse) * V_next_ns_nb
+        
+    #     # expected value function if you have a spouse *today*
+    #     EV_next_s = par.p_spouse * par.p_birth * V_next_s_b + par.p_spouse * (1-par.p_birth) * V_next_s_nb \
+    #         + (1-par.p_spouse) * par.p_birth * V_next_ns_b + (1-par.p_spouse) * (1-par.p_birth) * V_next_ns_nb
+
+    #     EV_next = (1 - spouse) * EV_next_ns + spouse * EV_next_s
+    #     print(EV_next)
+    #     # e. return value of choice (including penalty)
+    #     return util + par.rho*EV_next + penalty
 
 
     def util(self,c,hours,kids):
@@ -283,12 +345,17 @@ class DynLaborFertModelClass(EconModelClass):
     
     def p_birth_func(self, kids, spouse):
         # probability of birth
+        '''
+        implementing the conditional probability of birth function Pr(kids_next = 1|kids,spouse)
+        '''
 
         par = self.par
-        if(kids>=(par.Nn-1)) or (spouse==0):
-            return 0.0
+        if(kids>=(par.Nn-1)):
+            return 1.0
         elif(spouse==1) and (kids<(par.Nn-1)):
             return par.p_birth
+        else:
+            return 0.0
 
     ##############
     # Simulation #
